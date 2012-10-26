@@ -1,8 +1,10 @@
+from django.conf import settings
 from django.utils.encoding import smart_str
 from hashlib import sha1
 from mediagenerator.generators.bundles.base import Filter
 from mediagenerator.utils import find_file, read_text_file
-from subprocess import Popen, PIPE
+from mediagenerator import cache_store
+import subprocess
 import os
 import sys
 
@@ -15,9 +17,10 @@ class CoffeeScript(Filter):
         assert self.filetype == 'js', (
             'CoffeeScript only supports compilation to js. '
             'The parent filter expects "%s".' % self.filetype)
+
         self._compiled = None
         self._compiled_hash = None
-        self._mtime = None
+        self.path = None
 
     @classmethod
     def from_default(cls, name):
@@ -37,28 +40,39 @@ class CoffeeScript(Filter):
         yield self.module, self._compiled_hash
 
     def _regenerate(self, debug=False):
-        path = find_file(self.module)
-        mtime = os.path.getmtime(path)
-        if mtime == self._mtime:
-            return
-        source = read_text_file(path)
-        self._compiled = self._compile(source, debug=debug)
-        self._compiled_hash = sha1(smart_str(self._compiled)).hexdigest()
-        self._mtime = mtime
+        self.path = self.path or find_file(self.module)
+        is_modified = cache_store.mtime_modified(self.path)
+        self._compiled = self._compile(debug=debug, from_cache=not is_modified)
 
-    def _compile(self, input, debug=False):
+        self._compiled_hash = sha1(smart_str(self._compiled)).hexdigest()
+
+    def _compile(self, debug=False, from_cache=False):
         try:
+            coffee_file = self.path
+            js_file = self.path.replace('.coffee', '.js')
+
+            if from_cache or settings.DEV_FAST_START:
+                if os.path.exists(js_file):
+                    return read_text_file(js_file)
+
             shell = sys.platform == 'win32'
-            cmd = Popen(['coffee', '--compile', '--print', '--stdio', '--bare'],
-                        stdin=PIPE, stdout=PIPE, stderr=PIPE,
-                        shell=shell, universal_newlines=True)
+            run = ['coffee', '--bare', '--compile']
+            run.append(coffee_file)
+            subprocess.check_output(run, shell=shell, universal_newlines=True, stderr=subprocess.STDOUT)
+
+            return read_text_file(js_file)
+
+            """
             output, error = cmd.communicate(smart_str(input))
             assert cmd.wait() == 0, ('CoffeeScript command returned bad '
                                      'result:\n%s' % error)
             return output.decode('utf-8')
+            """
         except Exception, e:
+            cache_store.delmtime(self.path)
+            err = getattr(e, 'output', e)
             raise ValueError("Failed to run CoffeeScript compiler for this "
                 "file. Please confirm that the \"coffee\" application is "
                 "on your path and that you can run it from your own command "
                 "line.\n"
-                "Error was: %s" % e)
+                "Error was: %s" % err)

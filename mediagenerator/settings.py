@@ -1,7 +1,9 @@
 from django.conf import settings
 from django.utils.encoding import force_unicode
 import os
-import __main__
+import sys
+
+__main__ = sys.modules.get('__main__')
 
 _map_file_path = '_generated_media_names.py'
 _media_dir = '_generated_media'
@@ -36,3 +38,5 @@ IGNORE_APP_MEDIA_DIRS = getattr(settings, 'IGNORE_APP_MEDIA_DIRS',
     ('django.contrib.admin',))
 
 MEDIA_DEV_MODE = getattr(settings, 'MEDIA_DEV_MODE', settings.DEBUG)
+
+DEV_CACHE_MEDIA = getattr(settings, 'DEV_CACHE_MEDIA', False)

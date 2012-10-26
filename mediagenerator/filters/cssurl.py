@@ -40,6 +40,9 @@ class URLRewriter(object):
         if '#' in url:
             url, hashid = url.split('#', 1)
             hashid = '#' + hashid
+        url_query = None
+        if '?' in url:
+            url, url_query = url.split('?', 1)
         if ':' not in url and not url.startswith('/'):
             rebased_url = posixpath.join(self.base_path, url)
             rebased_url = posixpath.normpath(rebased_url)
@@ -54,7 +57,15 @@ class URLRewriter(object):
                 url = media_url(rebased_url)
             except:
                 logging.error('URL not found: %s' % url)
-        return 'url(%s%s)' % (url, hashid)
+
+        if url_query is None:
+            url_query = ''
+        elif '?' in url:
+            url_query = '&' + url_query
+        else:
+            url_query = '?' + url_query
+
+        return 'url(%s%s%s)' % (url, url_query, hashid)
 
 class CSSURL(Filter):
     """Rewrites URLs relative to media folder ("absolute" rewriting)."""

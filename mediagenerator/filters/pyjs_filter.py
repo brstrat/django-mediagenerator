@@ -256,7 +256,6 @@ class Pyjs(Filter):
                 allfiles = os.walk(pkgroot, followlinks=True)
             else:
                 allfiles = os.walk(pkgroot)
-
             for root, dirs, files in allfiles:
                 if '__init__.py' in files:
                     files.remove('__init__.py')

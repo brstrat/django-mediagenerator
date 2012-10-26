@@ -3,7 +3,11 @@ from django.utils.encoding import smart_str
 from hashlib import sha1
 from mediagenerator.generators.bundles.base import Filter
 from mediagenerator.utils import get_media_dirs, find_file, read_text_file
-from subprocess import Popen, PIPE
+import subprocess
+
+
+from mediagenerator import cache_store
+
 import os
 import posixpath
 import re
@@ -39,7 +43,7 @@ class Sass(Filter):
         self.path_args = []
         for path in self.path:
             self.path_args.extend(('-I', path.replace('\\', '/')))
-
+        
         self._compiled = None
         self._compiled_hash = None
         self._dependencies = {}
@@ -61,11 +65,27 @@ class Sass(Filter):
         self._regenerate(debug=True)
         yield self.main_module, self._compiled_hash
 
-    def _compile(self, debug=False):
+    def _compile(self, debug=False, from_cache=False):
+        try:
+            import settings as root_setttings
+            root_path = os.path.dirname(root_setttings.__file__)
+        except:
+            root_path = os.getcwd()
+        
+        scss_file = os.path.join(root_path, 'static', self.main_module)
+        css_file = os.path.join(root_path, 'static', self.main_module.replace('.scss', '.css'))
+
+        if from_cache or settings.DEV_FAST_START:
+            if os.path.exists(css_file):
+                return read_text_file(css_file)
+
         extensions = os.path.join(os.path.dirname(__file__), 'sass_compass.rb')
         extensions = extensions.replace('\\', '/')
-        run = ['sass', '-C', '-t', 'expanded',
-               '--require', extensions]
+        run = ['sass']
+        run.append(scss_file)
+        run.append(css_file)
+        run.extend(['-C', '-t', 'expanded', '--require', extensions])
+
         for framework in SASS_FRAMEWORKS:
             # Some frameworks are loaded by default
             if framework in ('blueprint', 'compass'):
@@ -78,28 +98,35 @@ class Sass(Filter):
         run.extend(self.path_args)
         shell = sys.platform == 'win32'
         try:
-            cmd = Popen(run, shell=shell, universal_newlines=True,
-                        stdin=PIPE, stdout=PIPE, stderr=PIPE)
+            subprocess.check_output(run, shell=shell, universal_newlines=True, stderr=subprocess.STDOUT)
+            
+            output = read_text_file(css_file)
+
+            """
             module = self.main_module.rsplit('.', 1)[0]
             output, error = cmd.communicate('@import "%s"' % module)
             assert cmd.wait() == 0, 'Command returned bad result:\n%s' % error
-            output = output.decode('utf-8')
+            """
             if output.startswith('@charset '):
                 output = output.split(';', 1)[1]
             return output
         except Exception, e:
+            cache_store.delmtime(css_file) # Clear modified time so we always regenerate
+            err = getattr(e, 'output', e)
             raise ValueError("Failed to execute Sass. Please make sure that "
                 "you have installed Sass (http://sass-lang.com) and "
                 "Compass (http://compass-style.org).\n"
-                "Error was: %s" % e)
+                "Error was: %s" % err)
 
     def _regenerate(self, debug=False):
+        is_modified = False
         if self._dependencies:
             for name, mtime in self._dependencies.items():
                 path = self._find_file(name)
-                if not path or os.path.getmtime(path) != mtime:
+                if not path or cache_store.mtime_modified(path):
                     # Just recompile everything
                     self._dependencies = {}
+                    is_modified = True
                     break
             else:
                 # No changes
@@ -113,7 +140,11 @@ class Sass(Filter):
             module_name = modules.pop()
             path = self._find_file(module_name)
             assert path, 'Could not find the Sass module %s' % module_name
-            mtime = os.path.getmtime(path)
+            
+            if cache_store.mtime_modified(path):
+                is_modified = True
+
+            mtime = cache_store.getmtime(path)
             self._dependencies[module_name] = mtime
 
             source = read_text_file(path)
@@ -129,10 +160,12 @@ class Sass(Filter):
                     path = self._find_file(name)
                 assert path, ('The Sass module %s could not find the '
                               'dependency %s' % (module_name, name))
+
+
                 if name not in self._dependencies:
                     modules.append(name)
 
-        self._compiled = self._compile(debug=debug)
+        self._compiled = self._compile(debug=debug, from_cache=not is_modified)
         self._compiled_hash = sha1(smart_str(self._compiled)).hexdigest()
 
     def _get_dependencies(self, source):

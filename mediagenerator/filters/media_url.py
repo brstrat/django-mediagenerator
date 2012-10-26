@@ -1,5 +1,9 @@
 from django.utils.encoding import smart_str
-from django.utils.simplejson import dumps
+
+try:
+    from json import dumps
+except ImportError:
+    from simplejson import dumps
 from hashlib import sha1
 from mediagenerator.generators.bundles.base import Filter
 from mediagenerator.utils import get_media_url_mapping

@@ -1,3 +1,4 @@
+from . import cache_store
 from . import settings as media_settings
 from .settings import (GLOBAL_MEDIA_DIRS, PRODUCTION_MEDIA_URL,
     IGNORE_APP_MEDIA_DIRS, MEDIA_GENERATORS, DEV_MEDIA_URL,
@@ -28,17 +29,32 @@ def _load_generators():
             _generators_cache.append(backend)
     return _generators_cache
 
+import logging
+import time
 def _refresh_dev_names():
+    cache_store.load_cache()
+    start = None
+    if not cache_store._cache_store:
+        start = time.time()
+        logging.info('Compiling Coffeescript/Sass...')
+
     _generated_names.clear()
     _backend_mapping.clear()
     for backend in _load_generators():
         for key, url, hash in backend.get_dev_output_names():
+            #logging.info('%s, %s, %s', key, url, hash)
             versioned_url = urlquote(url)
             if hash:
                 versioned_url += '?version=' + hash
             _generated_names.setdefault(key, [])
             _generated_names[key].append(versioned_url)
             _backend_mapping[url] = backend
+
+    cache_store.save_cache()
+    if start:
+        delta = time.time() - start
+        logging.info("Compilation completed in %.1f seconds" % delta)
+    #logging.info('%s Coffeescript/Sass files cached', len(cache_store._cache_store))
 
 class _MatchNothing(object):
     def match(self, content):
@@ -122,9 +138,8 @@ def find_file(name, media_dirs=None):
             return path
 
 def read_text_file(path):
-    fp = open(path, 'r')
-    output = fp.read()
-    fp.close()
+    with open(path, 'r') as fp:
+        output = fp.read()
     return output.decode('utf8')
 
 def load_backend(backend):

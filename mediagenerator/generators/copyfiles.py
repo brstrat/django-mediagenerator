@@ -13,7 +13,6 @@ COPY_MEDIA_FILETYPES = getattr(settings, 'COPY_MEDIA_FILETYPES',
 IGNORE_PATTERN = prepare_patterns(getattr(settings,
    'IGNORE_MEDIA_COPY_PATTERNS', ()), 'IGNORE_MEDIA_COPY_PATTERNS')
 
-
 class CopyFiles(Generator):
     def get_dev_output(self, name):
         path = find_file(name)
@@ -35,13 +34,11 @@ class CopyFiles(Generator):
             yield name, name, hash
 
     def collect_copyable_files(self, media_files, root):
-        #python 2.5 does not have the followlinks keyword argument
         has_followlinks = sys.version_info >= (2, 6)
         if has_followlinks:
             allfiles = os.walk(root, followlinks=True)
         else:
             allfiles = os.walk(root)
-
         for root_path, dirs, files in allfiles:
             for file in files:
                 ext = os.path.splitext(file)[1].lstrip('.')
