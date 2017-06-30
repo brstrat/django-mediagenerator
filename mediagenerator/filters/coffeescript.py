@@ -1,4 +1,4 @@
-from django.conf import settings
+import settings
 from django.utils.encoding import smart_str
 from hashlib import sha1
 from mediagenerator.generators.bundles.base import Filter
@@ -54,6 +54,10 @@ class CoffeeScript(Filter):
             if from_cache or settings.DEV_FAST_START:
                 if os.path.exists(js_file):
                     return read_text_file(js_file)
+
+            # subprocess broken in appengine sandbox
+            if not settings.DEV_GENERATE_MEDIA:
+                return read_text_file(js_file)
 
             shell = sys.platform == 'win32'
             run = ['coffee', '--bare', '--compile']

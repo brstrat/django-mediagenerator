@@ -9,52 +9,66 @@ from django.utils.importlib import import_module
 from django.utils.http import urlquote
 import os
 import re
+import functools
+import threading
 
 try:
     NAMES = import_module(GENERATED_MEDIA_NAMES_MODULE).NAMES
 except (ImportError, AttributeError):
     NAMES = None
 
-_backends_cache = {}
-_media_dirs_cache = []
-
-_generators_cache = []
 _generated_names = {}
 _backend_mapping = {}
 
+_refresh_dev_names_lock = threading.Lock()
+
+def memoize(func):
+    cache = {}
+    @functools.wraps(func)
+    def memoized(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return memoized
+
+@memoize
 def _load_generators():
-    if not _generators_cache:
-        for name in MEDIA_GENERATORS:
-            backend = load_backend(name)()
-            _generators_cache.append(backend)
-    return _generators_cache
+    return [load_backend(name)() for name in MEDIA_GENERATORS]
 
 import logging
 import time
-def _refresh_dev_names():
+def refresh_dev_names():
+    global _generated_names, _backend_mapping
+
+    generated_names = {}
+    backend_mapping = {}
+
     cache_store.load_cache()
     start = None
-    if not cache_store._cache_store:
+    if not cache_store._cache_store and not settings.DEV_FAST_START:
         start = time.time()
         logging.info('Compiling Coffeescript/Sass...')
 
-    _generated_names.clear()
-    _backend_mapping.clear()
     for backend in _load_generators():
         for key, url, hash in backend.get_dev_output_names():
             #logging.info('%s, %s, %s', key, url, hash)
             versioned_url = urlquote(url)
             if hash:
                 versioned_url += '?version=' + hash
-            _generated_names.setdefault(key, [])
-            _generated_names[key].append(versioned_url)
-            _backend_mapping[url] = backend
+            generated_names.setdefault(key, [])
+            generated_names[key].append(versioned_url)
+            backend_mapping[url] = backend
+
+    with _refresh_dev_names_lock:
+        _generated_names, _backend_mapping = generated_names, backend_mapping
 
     cache_store.save_cache()
     if start:
         delta = time.time() - start
         logging.info("Compilation completed in %.1f seconds" % delta)
-    #logging.info('%s Coffeescript/Sass files cached', len(cache_store._cache_store))
+
+def get_backend(filename):
+    return _backend_mapping[filename]
 
 class _MatchNothing(object):
     def match(self, content):
@@ -106,7 +120,7 @@ def get_media_url_mapping():
 def media_urls(key, refresh=False):
     if media_settings.MEDIA_DEV_MODE:
         if refresh:
-            _refresh_dev_names()
+            refresh_dev_names()
         return [DEV_MEDIA_URL + url for url in _generated_names[key]]
     return [PRODUCTION_MEDIA_URL + get_production_mapping()[key]]
 
@@ -117,17 +131,16 @@ def media_url(key, refresh=False):
     raise ValueError('media_url() only works with URLs that contain exactly '
         'one file. Use media_urls() (or {% include_media %} in templates) instead.')
 
+@memoize
 def get_media_dirs():
-    if not _media_dirs_cache:
-        media_dirs = GLOBAL_MEDIA_DIRS[:]
-        for app in settings.INSTALLED_APPS:
-            if app in IGNORE_APP_MEDIA_DIRS:
-                continue
-            for name in (u'static', u'media'):
-                app_root = os.path.dirname(import_module(app).__file__)
-                media_dirs.append(os.path.join(app_root, name))
-        _media_dirs_cache.extend(media_dirs)
-    return _media_dirs_cache
+    media_dirs = GLOBAL_MEDIA_DIRS[:]
+    for app in settings.INSTALLED_APPS:
+        if app in IGNORE_APP_MEDIA_DIRS:
+            continue
+        for name in (u'static', u'media'):
+            app_root = os.path.dirname(import_module(app).__file__)
+            media_dirs.append(os.path.join(app_root, name))
+    return media_dirs
 
 def find_file(name, media_dirs=None):
     if media_dirs is None:
@@ -142,13 +155,8 @@ def read_text_file(path):
         output = fp.read()
     return output.decode('utf8')
 
-def load_backend(backend):
-    if backend not in _backends_cache:
-        module_name, func_name = backend.rsplit('.', 1)
-        _backends_cache[backend] = _load_backend(backend)
-    return _backends_cache[backend]
-
-def _load_backend(path):
+@memoize
+def load_backend(path):
     module_name, attr_name = path.rsplit('.', 1)
     try:
         mod = import_module(module_name)

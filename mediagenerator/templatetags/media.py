@@ -3,6 +3,7 @@ from mediagenerator.generators.bundles.utils import _render_include_media
 from mediagenerator import utils
 from app.util.common import crunch
 from django.template.base import resolve_variable, Template
+
 register = template.Library()
 
 class MediaNode(template.Node):
@@ -60,9 +61,13 @@ def media_url_industry(context, url):
     return utils.media_url(industry_url)
 
 @register.simple_tag(takes_context=True)
-def media_url(context, url):
-    url = Template(url).render(context)
-    return utils.media_url(url)
+def media_url(context, url, default=None):
+    try:
+        return utils.media_url(Template(url).render(context))
+    except KeyError:
+        if default is not None:
+            return utils.media_url(Template(default).render(context))
+        raise
 
 @register.filter
 def media_urls(url):

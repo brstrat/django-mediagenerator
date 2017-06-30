@@ -1,7 +1,7 @@
 from .settings import DEV_MEDIA_URL, MEDIA_DEV_MODE, DEV_CACHE_MEDIA
 # Only load other dependencies if they're needed
 if MEDIA_DEV_MODE:
-    from .utils import _refresh_dev_names, _backend_mapping
+    from .utils import refresh_dev_names, get_backend
     from django.http import HttpResponse, Http404
     from django.utils.cache import patch_cache_control
     from django.utils.http import http_date
@@ -32,32 +32,10 @@ class MediaMiddleware(object):
         if not MEDIA_DEV_MODE:
             return
 
-
-        """
-        from mediagenerator.cache_store import MediageneratorCacheStore
-        cache_store = MediageneratorCacheStore.check()
-
-        logging.info(cache_store)
-
-        if not cache_store:
-            _refresh_dev_names()
-            MediageneratorCacheStore.set(True)
-
-        
-        global DEV_CACHE_MEDIA
-
-        logging.info("Cache status %s", DEV_CACHE_MEDIA)
-        
-
-        if _REFRESH_DEV_NAMES and DEV_CACHE_MEDIA:
-            _refresh_dev_names()
-            _REFRESH_DEV_NAMES_DONE_AT = time.time()
-            _REFRESH_DEV_NAMES = False
-        """
         global _REFRESH_DEV_NAMES_DONE_AT
 
         if (_REFRESH_DEV_NAMES_DONE_AT + 3) < time.time():
-            _refresh_dev_names()
+            refresh_dev_names()
             _REFRESH_DEV_NAMES_DONE_AT = time.time()
         
         if not request.path.startswith(DEV_MEDIA_URL):
@@ -66,7 +44,7 @@ class MediaMiddleware(object):
         filename = request.path[len(DEV_MEDIA_URL):]
 
         try:
-            backend = _backend_mapping[filename]
+            backend = get_backend(filename)
         except KeyError:
             raise Http404('The mediagenerator could not find the media file "%s"'
                           % filename)

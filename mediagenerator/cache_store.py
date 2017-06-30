@@ -1,4 +1,5 @@
 from django.db import models
+from djangoappengine.db.utils import commit_locked
 
 try:
     import cPickle as pickle
@@ -9,6 +10,9 @@ import os
 
 # {file path: mtime}
 _cache_store = {}
+
+CACHE_DB_ID = "1"
+
 
 class __MediageneratorCacheStore(models.Model):
     media = models.TextField(default='')
@@ -46,7 +50,7 @@ class __MediageneratorCacheStore(models.Model):
         global _cache_store
 
         _cache_store = {}
-        cls.objects.all().delete()
+        cls.objects.filter(id=CACHE_DB_ID).delete()
 
     @classmethod
     def load_cache(cls):
@@ -54,7 +58,7 @@ class __MediageneratorCacheStore(models.Model):
 
         if not _cache_store:
             try:
-                cache_store = cls.objects.get()
+                cache_store = cls.objects.get(id=CACHE_DB_ID)
                 _cache_store = pickle.loads(str(cache_store.media)) or {}
             except cls.DoesNotExist:
                 _cache_store = {}
@@ -63,10 +67,10 @@ class __MediageneratorCacheStore(models.Model):
     def save_cache(cls):
         pickled_cache = pickle.dumps(_cache_store)
         try:
-            cache_store = cls.objects.get()
+            cache_store = cls.objects.get(id=CACHE_DB_ID)
             cache_store.media = pickled_cache
         except cls.DoesNotExist:
-            cache_store = cls(media=pickled_cache)
+            cache_store = cls(id=CACHE_DB_ID, media=pickled_cache)
 
         cache_store.save()
 

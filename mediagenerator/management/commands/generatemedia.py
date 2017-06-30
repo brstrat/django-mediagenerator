@@ -7,4 +7,7 @@ class Command(NoArgsCommand):
     requires_model_validation = False
 
     def handle_noargs(self, **options):
+        import settings
+        settings.DEV_GENERATE_MEDIA = True
+
         generate_media()
