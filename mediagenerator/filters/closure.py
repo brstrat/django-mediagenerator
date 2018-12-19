@@ -22,6 +22,7 @@ class Closure(Filter):
                 compressor = settings.CLOSURE_COMPILER_PATH
                 cmd = Popen(['java', '-jar', compressor,
                              '--charset', 'utf-8',
+                             '--strict_mode_input', 'false',
                              '--compilation_level', self.compilation_level],
                             stdin=PIPE, stdout=PIPE, stderr=PIPE,
                             universal_newlines=True)
